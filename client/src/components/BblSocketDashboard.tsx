@@ -170,7 +170,7 @@ function PlayByPlayTimeline({ events, homeColor, guestColor, historyIncomplete }
   const reversed = [...events].reverse();
 
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted, flexShrink: 0 }}>
         📋 Live Play-by-Play ({events.length})
       </div>
@@ -436,7 +436,7 @@ export default function BblSocketDashboard() {
           </div>
 
           {/* Right column: Play-by-Play Sidebar */}
-          <div style={{ position: 'sticky', top: 12, maxHeight: 'calc(100vh - 200px)' }}>
+          <div style={{ position: 'sticky', top: 12, height: 'calc(100vh - 100px)', minHeight: 0 }}>
             <PlayByPlayTimeline events={state.playEvents} homeColor={homeColor} guestColor={guestColor} historyIncomplete={ws.historyIncomplete} />
           </div>
         </div>

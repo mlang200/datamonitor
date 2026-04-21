@@ -62,7 +62,7 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: false, // Set to true only when behind HTTPS (ALB with SSL)
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax',
   },
