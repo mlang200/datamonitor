@@ -182,6 +182,172 @@ function TeamTable({ players, teamName, tlc, score, accentColor }: {
   );
 }
 
+// ═══════════════════════════════════════════════
+// Score Flow Timeline
+// ═══════════════════════════════════════════════
+
+const QUARTER_DURATION = 600; // 10 min per quarter in seconds
+const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
+
+function parseClock(clock: string): number {
+  const parts = clock.split(':');
+  if (parts.length !== 2) return 0;
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
+function eventToX(quarter: string, clock: string, width: number): number {
+  const qIdx = QUARTERS.indexOf(quarter);
+  if (qIdx === -1) {
+    // OT quarters
+    const otMatch = quarter.match(/OT(\d+)/);
+    if (!otMatch) return width;
+    const otIdx = parseInt(otMatch[1], 10) - 1;
+    const elapsed = QUARTER_DURATION - parseClock(clock);
+    return ((4 + otIdx) / (4 + otIdx + 1)) * width + (elapsed / QUARTER_DURATION) * (width / (4 + otIdx + 1));
+  }
+  const elapsed = QUARTER_DURATION - parseClock(clock);
+  const qWidth = width / 4;
+  return qIdx * qWidth + (elapsed / QUARTER_DURATION) * qWidth;
+}
+
+function ScoreFlowTimeline({ events, homeColor, guestColor, homeTlc, guestTlc }: {
+  events: PlayEvent[]; homeColor: string; guestColor: string; homeTlc: string; guestTlc: string;
+}) {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const scoringEvents = events.filter(e => e.isScoring && e.scoreA != null && e.scoreB != null);
+  if (scoringEvents.length < 2) return null;
+
+  const W = 1000;
+  const H = 100;
+  const MID = H / 2;
+  const PAD_TOP = 8;
+  const PAD_BOT = 8;
+
+  // Build score-diff path: positive = home leads, negative = guest leads
+  const maxDiff = Math.max(1, ...scoringEvents.map(e => Math.abs((e.scoreA ?? 0) - (e.scoreB ?? 0))));
+  const yScale = (MID - PAD_TOP - 4) / maxDiff;
+
+  // Build path points
+  const points: { x: number; y: number; ev: PlayEvent }[] = [{ x: 0, y: MID, ev: scoringEvents[0] }];
+  for (const ev of scoringEvents) {
+    const x = eventToX(ev.quarter, ev.clock, W);
+    const diff = (ev.scoreA ?? 0) - (ev.scoreB ?? 0);
+    const y = MID - diff * yScale;
+    points.push({ x, y, ev });
+  }
+
+  // SVG path
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+  // Area fill: home above midline, guest below
+  const homeAreaD = `M0,${MID} ${points.map(p => `L${p.x},${Math.min(p.y, MID)}`).join(' ')} L${points[points.length - 1].x},${MID} Z`;
+  const guestAreaD = `M0,${MID} ${points.map(p => `L${p.x},${Math.max(p.y, MID)}`).join(' ')} L${points[points.length - 1].x},${MID} Z`;
+
+  // Quarter dividers
+  const qDividers = [1, 2, 3].map(i => (i / 4) * W);
+
+  // Timeout markers
+  const timeouts = events.filter(e => e.action === 'TIMEO' || e.action === 'TTO');
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * W;
+    // Find closest scoring event
+    let closest = points[0];
+    let minDist = Infinity;
+    for (const p of points) {
+      const dist = Math.abs(p.x - mouseX);
+      if (dist < minDist) { minDist = dist; closest = p; }
+    }
+    if (minDist < 30 && closest.ev.scoreA != null) {
+      const diff = (closest.ev.scoreA ?? 0) - (closest.ev.scoreB ?? 0);
+      const leader = diff > 0 ? homeTlc : diff < 0 ? guestTlc : 'Tie';
+      const lastName = closest.ev.playerName.split(' ').pop() || '';
+      setTooltip({
+        x: e.clientX - (svgRef.current?.getBoundingClientRect().left ?? 0),
+        y: e.clientY - (svgRef.current?.getBoundingClientRect().top ?? 0) - 30,
+        text: `${closest.ev.quarter} ${closest.ev.clock} · ${closest.ev.scoreA}:${closest.ev.scoreB} · ${leader} ${diff > 0 ? '+' : ''}${diff} · #${closest.ev.playerNum} ${lastName}`,
+      });
+    } else {
+      setTooltip(null);
+    }
+  };
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+      <div style={{ padding: '6px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted, display: 'flex', alignItems: 'center', gap: 12 }}>
+        📈 Score Flow
+        <span style={{ fontSize: 9, fontWeight: 400, color: homeColor }}>▲ {homeTlc}</span>
+        <span style={{ fontSize: 9, fontWeight: 400, color: guestColor }}>▼ {guestTlc}</span>
+      </div>
+      <div style={{ position: 'relative', padding: '0 12px 4px' }}>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          style={{ width: '100%', height: 80, display: 'block' }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {/* Home area (above midline) */}
+          <path d={homeAreaD} fill={homeColor} opacity={0.15} />
+          {/* Guest area (below midline) */}
+          <path d={guestAreaD} fill={guestColor} opacity={0.15} />
+
+          {/* Midline (tie line) */}
+          <line x1={0} y1={MID} x2={W} y2={MID} stroke={C.border} strokeWidth={0.5} strokeDasharray="4,4" />
+
+          {/* Quarter dividers */}
+          {qDividers.map((x, i) => (
+            <g key={i}>
+              <line x1={x} y1={0} x2={x} y2={H} stroke={C.border} strokeWidth={0.5} />
+              <text x={x - 2} y={H - 2} textAnchor="end" fontSize={7} fill={C.textDim}>{QUARTERS[i]}</text>
+            </g>
+          ))}
+          <text x={W - 2} y={H - 2} textAnchor="end" fontSize={7} fill={C.textDim}>Q4</text>
+
+          {/* Timeout markers */}
+          {timeouts.map((t, i) => {
+            const x = eventToX(t.quarter, t.clock, W);
+            return <line key={`to-${i}`} x1={x} y1={2} x2={x} y2={H - 2} stroke={C.textDim} strokeWidth={0.5} strokeDasharray="2,2" opacity={0.5} />;
+          })}
+
+          {/* Score diff line */}
+          <path d={pathD} fill="none" stroke={C.accent} strokeWidth={1.5} />
+
+          {/* Scoring dots */}
+          {points.slice(1).map((p, i) => {
+            const isHome = p.ev.teamCode === 'A';
+            return (
+              <circle
+                key={i}
+                cx={p.x} cy={p.y}
+                r={p.ev.action === 'P3' ? 3 : p.ev.action === 'FT' ? 1.5 : 2}
+                fill={isHome ? homeColor : guestColor}
+                opacity={0.8}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Tooltip */}
+        {tooltip && (
+          <div style={{
+            position: 'absolute', left: tooltip.x, top: tooltip.y,
+            background: '#000', color: '#fff', padding: '3px 8px', borderRadius: 4,
+            fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none',
+            transform: 'translateX(-50%)', zIndex: 10,
+          }}>
+            {tooltip.text}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PlayByPlayTimeline({ events, homeColor, guestColor, historyIncomplete }: {
   events: PlayEvent[]; homeColor: string; guestColor: string; historyIncomplete: boolean;
 }) {
@@ -438,6 +604,17 @@ export default function BblSocketDashboard() {
             <div style={{ fontSize: 10, color: C.textMuted }}>{guestTeamName}</div>
           </div>
         </div>
+      )}
+
+      {/* Score Flow Timeline — full width */}
+      {selectedMatch && state.playEvents.length >= 2 && (
+        <ScoreFlowTimeline
+          events={state.playEvents}
+          homeColor={homeColor}
+          guestColor={guestColor}
+          homeTlc={homeTlc || selectedMatch.homeTeam}
+          guestTlc={guestTlc || selectedMatch.guestTeam}
+        />
       )}
 
       {/* 2-column layout: Left Boxscore, Right Play-by-Play */}
