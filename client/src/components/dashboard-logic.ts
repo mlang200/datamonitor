@@ -257,3 +257,129 @@ export function areStatsReady(
 ): boolean {
   return [...playersA, ...playersB].some(p => p.sp > 0);
 }
+
+
+// ═══════════════════════════════════════════════
+// Live Insights
+// ═══════════════════════════════════════════════
+
+export interface LiveInsight {
+  icon: string;
+  headline: string;   // max 4 words
+  detail: string;     // max ~12 words
+}
+
+/**
+ * Generates max 3 live insights from play events and player stats.
+ * Focuses on: team runs, hot players, scoring droughts, momentum shifts.
+ */
+export function generateInsights(
+  playEvents: PlayEvent[],
+  playersA: PlayerStats[],
+  playersB: PlayerStats[],
+  teamNameA: string,
+  teamNameB: string,
+): LiveInsight[] {
+  const insights: LiveInsight[] = [];
+  if (playEvents.length < 3) return insights;
+
+  // --- 1. Team Runs (consecutive scoring by one team) ---
+  const scoringEvents = playEvents.filter(e => e.isScoring);
+  if (scoringEvents.length >= 3) {
+    const recent = scoringEvents.slice(-15); // look at last 15 scoring events
+    let runTeam = '';
+    let runPoints = 0;
+    let runCount = 0;
+
+    // Walk backwards from the most recent scoring event
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const ev = recent[i];
+      if (runTeam === '') {
+        runTeam = ev.teamCode;
+        runPoints += pointsFromAction(ev);
+        runCount++;
+      } else if (ev.teamCode === runTeam) {
+        runPoints += pointsFromAction(ev);
+        runCount++;
+      } else {
+        break;
+      }
+    }
+
+    if (runCount >= 3 && runPoints >= 6) {
+      const name = runTeam === 'A' ? teamNameA : teamNameB;
+      insights.push({
+        icon: '🔥',
+        headline: `${name}-Run!`,
+        detail: `${runPoints}:0-Lauf mit ${runCount} Scores in Folge.`,
+      });
+    }
+  }
+
+  // --- 2. Hot Player (most points in last N events) ---
+  const recentActions = playEvents.slice(-20);
+  const recentScoring = recentActions.filter(e => e.isScoring);
+  if (recentScoring.length >= 3) {
+    const playerPoints = new Map<string, { name: string; pts: number; team: string }>();
+    for (const ev of recentScoring) {
+      const key = ev.playerNum + ev.teamCode;
+      const existing = playerPoints.get(key);
+      const pts = pointsFromAction(ev);
+      if (existing) {
+        existing.pts += pts;
+      } else {
+        const lastName = ev.playerName.split(' ').pop() || ev.playerName;
+        playerPoints.set(key, { name: lastName, pts, team: ev.teamCode });
+      }
+    }
+    const hottest = [...playerPoints.values()].sort((a, b) => b.pts - a.pts)[0];
+    if (hottest && hottest.pts >= 6) {
+      insights.push({
+        icon: '⭐',
+        headline: `${hottest.name} on Fire`,
+        detail: `${hottest.pts} Punkte in den letzten ${recentScoring.length} Scores.`,
+      });
+    }
+  }
+
+  // --- 3. Scoring Drought (team without points for many events) ---
+  if (scoringEvents.length >= 5) {
+    const lastA = findLastScoringIndex(scoringEvents, 'A');
+    const lastB = findLastScoringIndex(scoringEvents, 'B');
+    const totalScoring = scoringEvents.length;
+
+    const droughtA = lastA === -1 ? totalScoring : totalScoring - 1 - lastA;
+    const droughtB = lastB === -1 ? totalScoring : totalScoring - 1 - lastB;
+
+    const droughtThreshold = 4; // opponent scored 4+ times without answer
+    if (droughtA >= droughtThreshold && droughtA > droughtB) {
+      insights.push({
+        icon: '🧊',
+        headline: `${teamNameA} kalt`,
+        detail: `Seit ${droughtA} gegnerischen Scores ohne eigene Punkte.`,
+      });
+    } else if (droughtB >= droughtThreshold && droughtB > droughtA) {
+      insights.push({
+        icon: '🧊',
+        headline: `${teamNameB} kalt`,
+        detail: `Seit ${droughtB} gegnerischen Scores ohne eigene Punkte.`,
+      });
+    }
+  }
+
+  return insights.slice(0, 3);
+}
+
+function pointsFromAction(ev: PlayEvent): number {
+  if (!ev.isScoring) return 0;
+  if (ev.action === 'P3') return 3;
+  if (ev.action === 'FT') return 1;
+  return 2; // P2
+}
+
+function findLastScoringIndex(scoringEvents: PlayEvent[], teamCode: string): number {
+  for (let i = scoringEvents.length - 1; i >= 0; i--) {
+    if (scoringEvents[i].teamCode === teamCode) return i;
+  }
+  return -1;
+}

@@ -6,8 +6,8 @@ import { useProductionWindow } from '../hooks/useProductionWindow';
 import type { GameInfo } from '../hooks/useBblSocket';
 import {
   buildRosterMap, buildStateFromEvents, getLeaders, getPlayEvents,
-  formatClock, pct, shotStr,
-  type PlayerStats, type PlayEvent,
+  formatClock, pct, shotStr, generateInsights,
+  type PlayerStats, type PlayEvent, type LiveInsight,
 } from './dashboard-logic';
 
 // ═══════════════════════════════════════════════
@@ -46,6 +46,28 @@ function formatTime(iso: string): string {
 // ═══════════════════════════════════════════════
 // Sub-components
 // ═══════════════════════════════════════════════
+
+function InsightsPanel({ insights }: { insights: LiveInsight[] }) {
+  if (insights.length === 0) return null;
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ padding: '6px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted }}>
+        💡 Live Insights
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {insights.map((ins, i) => (
+          <div key={i} style={{ padding: '6px 12px', borderBottom: i < insights.length - 1 ? `1px solid ${C.border}` : 'none', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 14, flexShrink: 0, lineHeight: '18px' }}>{ins.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.white, lineHeight: '16px' }}>{ins.headline}</div>
+              <div style={{ fontSize: 11, color: C.text, lineHeight: '15px' }}>{ins.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function LeadersPanel({ playersA, playersB, tlcA, tlcB, homeColor, guestColor }: {
   playersA: PlayerStats[]; playersB: PlayerStats[];
@@ -301,6 +323,13 @@ export default function BblSocketDashboard() {
   const hasRealPlayerStats = [...state.playersA, ...state.playersB].some(p => p.sp > 0);
   const statsReady = hasData && hasRealPlayerStats;
 
+  // Live Insights
+  const insights = useMemo(() => generateInsights(
+    state.playEvents, state.playersA, state.playersB,
+    homeTlc || selectedMatch?.homeTeam || 'A',
+    guestTlc || selectedMatch?.guestTeam || 'B',
+  ), [state.playEvents, state.playersA, state.playersB, homeTlc, guestTlc, selectedMatch]);
+
   return (
     <div style={{ padding: 24, background: C.bg, minHeight: '100vh', color: C.text, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       {/* Controls */}
@@ -413,6 +442,7 @@ export default function BblSocketDashboard() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             {statsReady ? (
               <>
+                <InsightsPanel insights={insights} />
                 <LeadersPanel playersA={state.playersA} playersB={state.playersB} tlcA={homeTlc || selectedMatch.homeTeam} tlcB={guestTlc || selectedMatch.guestTeam} homeColor={homeColor} guestColor={guestColor} />
                 <TeamTable players={state.playersA} teamName={homeTeamName} tlc={homeTlc || selectedMatch.homeTeam} score={state.scoreA} accentColor={homeColor} />
                 <TeamTable players={state.playersB} teamName={guestTeamName} tlc={guestTlc || selectedMatch.guestTeam} score={state.scoreB} accentColor={guestColor} />
@@ -428,6 +458,7 @@ export default function BblSocketDashboard() {
               </div>
             ) : (
               <>
+                <InsightsPanel insights={insights} />
                 <LeadersPanel playersA={[]} playersB={[]} tlcA={homeTlc || selectedMatch.homeTeam} tlcB={guestTlc || selectedMatch.guestTeam} homeColor={homeColor} guestColor={guestColor} />
                 <TeamTable players={[]} teamName={homeTeamName} tlc={homeTlc || selectedMatch.homeTeam} score={0} accentColor={homeColor} />
                 <TeamTable players={[]} teamName={guestTeamName} tlc={guestTlc || selectedMatch.guestTeam} score={0} accentColor={guestColor} />
