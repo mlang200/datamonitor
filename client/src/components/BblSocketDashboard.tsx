@@ -3,6 +3,7 @@ import * as api from '../api';
 import type { PlanningDeskMatch, BblMappedEvent } from '../api';
 import { useBblSocket } from '../hooks/useBblSocket';
 import { useProductionWindow } from '../hooks/useProductionWindow';
+import { useAuth } from '../auth/AuthContext';
 import type { GameInfo } from '../hooks/useBblSocket';
 import {
   buildRosterMap, buildStateFromEvents, getLeaders, getPlayEvents,
@@ -239,6 +240,8 @@ function PlayByPlayTimeline({ events, homeColor, guestColor, historyIncomplete }
 // ═══════════════════════════════════════════════
 
 export default function BblSocketDashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [matches, setMatches] = useState<PlanningDeskMatch[]>([]);
   const [selectedMatchIdx, setSelectedMatchIdx] = useState<string>('');
   const [loadingMatches, setLoadingMatches] = useState(false);
@@ -342,13 +345,13 @@ export default function BblSocketDashboard() {
             </option>
           ))}
         </select>
-        {ws.connected ? (
+        {isAdmin && (ws.connected ? (
           <button onClick={handleDisconnect} style={{ ...btn(), background: C.danger, color: '#fff', border: `1px solid ${C.danger}` }}>⏹ Trennen</button>
         ) : (
           <button onClick={handleConnect} disabled={!bblGameId || connecting} style={{ ...btn(true), opacity: !bblGameId || connecting ? 0.5 : 1 }}>
             {connecting ? '⏳ Verbinde...' : '🔌 Verbinden'}
           </button>
-        )}
+        ))}
         {ws.connected && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.success, animation: 'pulse 2s infinite' }} />
@@ -364,7 +367,8 @@ export default function BblSocketDashboard() {
         </div>
       </div>
 
-      {/* Socket Terminal */}
+      {/* Socket Terminal — Admin only */}
+      {isAdmin && (
       <div style={{
         background: '#0c0c0c', border: `1px solid ${C.border}`, borderRadius: 6,
         marginBottom: 16, overflow: 'hidden', fontFamily: '"Fira Code", "Cascadia Code", "Consolas", monospace',
@@ -403,6 +407,7 @@ export default function BblSocketDashboard() {
           )}
         </div>
       </div>
+      )}
 
       {error && <div style={{ padding: 12, background: 'rgba(255,61,61,0.1)', border: `1px solid ${C.danger}`, borderRadius: 6, color: C.danger, fontSize: 12, marginBottom: 16 }}>{error}</div>}
 
