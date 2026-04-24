@@ -18,6 +18,8 @@ import { createBblSocketRouter } from './routes/bbl-socket.js';
 import { setupBblWebSocket } from './bbl-socket/ws-handler.js';
 import { createPlanningDeskClient } from './planning-desk-client.js';
 import { createPlanningDeskRouter } from './routes/planning-desk.js';
+import { createReplayService } from './replay/index.js';
+import { createReplayRouter } from './routes/replay.js';
 import { WebSocketServer, WebSocket } from 'ws';
 
 // Load config — abort if SESSION_SECRET is missing
@@ -97,6 +99,12 @@ if (bblSocketApiKey) {
   });
   app.use('/api/bbl-socket', createBblSocketRouter(bblSocket));
   console.log('BBL Socket service registered');
+
+  // Replay Service — Admin-only, requires BBL Socket Service
+  const recordingsDir = path.join(__dirname, '..', '..', 'recordings');
+  const replayService = createReplayService(bblSocket, recordingsDir);
+  app.use('/api/admin/replay', createReplayRouter(replayService, recordingsDir));
+  console.log('Replay service registered');
 } else {
   console.warn('BBL_SOCKET_API_KEY not set — BBL Socket service not registered');
 }

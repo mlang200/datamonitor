@@ -268,6 +268,126 @@ export default function AdminPanel() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Replay Section ── */}
+      <ReplaySection />
+    </div>
+  );
+}
+
+function ReplaySection() {
+  const [recordings, setRecordings] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState('');
+  const [speed, setSpeed] = useState(10);
+  const [replayState, setReplayState] = useState<adminApi.ReplayState | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [loadingRecordings, setLoadingRecordings] = useState(false);
+
+  const fetchRecordings = async () => {
+    setLoadingRecordings(true);
+    try {
+      const files = await adminApi.getRecordings();
+      setRecordings(files);
+      if (files.length > 0 && !selectedFile) setSelectedFile(files[0]);
+    } catch { /* ignore */ }
+    setLoadingRecordings(false);
+  };
+
+  const fetchStatus = async () => {
+    try {
+      const state = await adminApi.getReplayStatus();
+      setReplayState(state);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { fetchRecordings(); fetchStatus(); }, []);
+
+  // Poll status while playing
+  useEffect(() => {
+    if (!replayState?.isPlaying) return;
+    const interval = setInterval(fetchStatus, 2000);
+    return () => clearInterval(interval);
+  }, [replayState?.isPlaying]);
+
+  const handleStart = async () => {
+    if (!selectedFile) return;
+    setReplayError(null);
+    try {
+      const state = await adminApi.startReplay(selectedFile, speed);
+      setReplayState(state);
+    } catch (err: any) {
+      setReplayError(err.message);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      await adminApi.stopReplay();
+      setReplayState(null);
+    } catch { /* ignore */ }
+  };
+
+  const C = { card: '#01192e', border: '#0d2a42', borderLight: '#163a56', textMuted: '#4a6a85', accent: '#22d2e6', white: '#fff', text: '#c1d1e1', warning: '#ff9100', success: '#00c853' };
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h3 style={{ color: C.white, margin: '0 0 12px', fontSize: 16 }}>🎬 Spiel-Replay (E2E-Test)</h3>
+
+      {replayError && (
+        <div style={{ padding: '8px 12px', background: 'rgba(255,61,61,0.1)', border: '1px solid #ff3d3d', borderRadius: 4, color: '#ff3d3d', fontSize: 12, marginBottom: 12 }}>
+          {replayError}
+        </div>
+      )}
+
+      {replayState?.isPlaying ? (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.success, animation: 'pulse 2s infinite' }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.success }}>Replay läuft</span>
+            <span style={{ fontSize: 11, color: C.textMuted }}>Game {replayState.gameId} · {replayState.speed}× Speed</span>
+          </div>
+          <div style={{ fontSize: 12, color: C.text, marginBottom: 8 }}>
+            {replayState.playedEvents} / {replayState.totalEvents} Events
+            ({Math.round((replayState.playedEvents / replayState.totalEvents) * 100)}%)
+          </div>
+          <div style={{ height: 4, background: C.border, borderRadius: 2, overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{ height: '100%', background: C.accent, width: `${(replayState.playedEvents / replayState.totalEvents) * 100}%`, transition: 'width 0.5s' }} />
+          </div>
+          <button onClick={handleStop} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none', borderRadius: 4, background: '#ff3d3d', color: '#fff' }}>
+            ⏹ Replay stoppen
+          </button>
+        </div>
+      ) : (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: 16, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
+            <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>Recording</span>
+            <select value={selectedFile} onChange={e => setSelectedFile(e.target.value)} style={{ padding: '6px 10px', fontSize: 12, background: '#011326', color: C.text, border: `1px solid ${C.borderLight}`, borderRadius: 4 }}>
+              {recordings.length === 0 && <option value="">{loadingRecordings ? 'Lade...' : 'Keine Recordings'}</option>}
+              {recordings.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 80 }}>
+            <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 600 }}>Speed</span>
+            <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={{ padding: '6px 10px', fontSize: 12, background: '#011326', color: C.text, border: `1px solid ${C.borderLight}`, borderRadius: 4 }}>
+              <option value={1}>1×</option>
+              <option value={5}>5×</option>
+              <option value={10}>10×</option>
+              <option value={50}>50×</option>
+              <option value={100}>100×</option>
+            </select>
+          </label>
+          <button onClick={handleStart} disabled={!selectedFile} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: selectedFile ? 'pointer' : 'not-allowed', border: 'none', borderRadius: 4, background: selectedFile ? C.accent : C.border, color: selectedFile ? '#011326' : C.textMuted }}>
+            ▶ Replay starten
+          </button>
+          <button onClick={fetchRecordings} style={{ padding: '6px 10px', fontSize: 11, cursor: 'pointer', background: 'transparent', border: `1px solid ${C.borderLight}`, borderRadius: 4, color: C.textMuted }}>
+            🔄
+          </button>
+        </div>
+      )}
+
+      <div style={{ fontSize: 10, color: C.textMuted, marginTop: 8 }}>
+        Recordings werden mit <code style={{ color: C.accent }}>npx tsx server/src/tools/record-game.ts &lt;gameId&gt;</code> erstellt und im <code style={{ color: C.accent }}>recordings/</code>-Verzeichnis gespeichert.
+      </div>
     </div>
   );
 }

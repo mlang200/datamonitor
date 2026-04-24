@@ -96,6 +96,8 @@ export interface BblSocketService {
   onLog(cb: LogCallback): () => void;
   onStatus(cb: StatusCallback): () => void;
   isConnected(): boolean;
+  /** Inject a mapped event into the event pipeline (used by replay). */
+  _injectEvent(event: MappedEvent): void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -414,5 +416,27 @@ export function createBblSocketService(config: BblSocketConfig): BblSocketServic
     },
 
     isConnected(): boolean { return session?.isConnected ?? false; },
+
+    _injectEvent(event: MappedEvent): void {
+      if (!session) return;
+      session.events.push(event);
+
+      // Track last IDs
+      const id = event.data.id as number | undefined;
+      if (id != null) {
+        if (event.type === 0) session.lastIds.score = id;
+        if (event.type === 1) session.lastIds.action = id;
+        if (event.type === 2) session.lastIds.team = id;
+        if (event.type === 4) session.lastIds.player = id;
+      }
+
+      if (event.type === 20 && !session.isHistoryLoaded) {
+        session.isHistoryLoaded = true;
+        log(`[replay] history_end — ${session.events.length} events`);
+        notifyStatus();
+      }
+
+      eventListeners.forEach(cb => cb(event));
+    },
   };
 }
