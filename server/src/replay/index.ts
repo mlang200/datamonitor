@@ -122,17 +122,34 @@ export function createReplayService(
       });
 
     // Split: setup events (immediate) vs play events (timed)
-    const setupTypes = new Set([2, 4, 7, 8]);
+    // Only starting-five (7) is true setup. Everything else plays back timed.
+    // Player-stats (4) and team-stats (2) contain cumulative data — sending them
+    // all at once would show the final boxscore immediately.
+    const setupTypes = new Set([7]);
     const setupEvents = dataEvents.filter(e => setupTypes.has(e.mapped.type));
-    const playEvents = dataEvents
+
+    // All other events play back with timing
+    // For events without game time (player stats, team stats), interleave them
+    // at the game time of the nearest score/action event
+    const timedEvents = dataEvents
       .filter(e => !setupTypes.has(e.mapped.type) && e.mapped.type !== 20)
-      .filter(e => e.gameSec >= 0) // Only events with valid game time
+      .map((e, i, arr) => {
+        if (e.gameSec >= 0) return e;
+        // Find nearest event with valid game time (look forward then backward)
+        for (let j = i + 1; j < arr.length; j++) {
+          if (arr[j].gameSec >= 0) return { ...e, gameSec: arr[j].gameSec };
+        }
+        for (let j = i - 1; j >= 0; j--) {
+          if (arr[j].gameSec >= 0) return { ...e, gameSec: arr[j].gameSec };
+        }
+        return { ...e, gameSec: 0 };
+      })
       .sort((a, b) => a.gameSec - b.gameSec);
 
     state = {
       isPlaying: true,
       gameId: recording.gameId,
-      totalEvents: playEvents.length,
+      totalEvents: timedEvents.length,
       playedEvents: 0,
       speed,
       recordedAt: recording.recordedAt,
@@ -157,8 +174,8 @@ export function createReplayService(
       bblSocket._injectEvent(mapData([20]));
 
       // 3. Send play events with game-time-based delays
-      console.log(`[replay] Starting playback: ${playEvents.length} events at ${speed}x speed`);
-      replayPlayEvents(playEvents, speed);
+      console.log(`[replay] Starting playback: ${timedEvents.length} events at ${speed}x speed`);
+      replayPlayEvents(timedEvents, speed);
     }, 300);
 
     return state;
