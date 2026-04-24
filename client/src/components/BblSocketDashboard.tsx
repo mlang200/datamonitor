@@ -49,12 +49,16 @@ function formatTime(iso: string): string {
 // ═══════════════════════════════════════════════
 
 function InsightsPanel({ insights }: { insights: LiveInsight[] }) {
-  if (insights.length === 0) return null;
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ padding: '6px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted }}>
         💡 Live Insights
       </div>
+      {insights.length === 0 ? (
+        <div style={{ padding: '12px 12px', textAlign: 'center', color: C.textDim, fontSize: 11 }}>
+          Insights erscheinen während des Spiels...
+        </div>
+      ) : (
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {insights.map((ins, i) => (
           <div key={i} style={{ padding: '6px 12px', borderBottom: i < insights.length - 1 ? `1px solid ${C.border}` : 'none', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
@@ -66,6 +70,7 @@ function InsightsPanel({ insights }: { insights: LiveInsight[] }) {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -217,12 +222,40 @@ function ScoreFlowTimeline({ events, homeColor, guestColor, homeTlc, guestTlc }:
   const svgRef = useRef<SVGSVGElement>(null);
 
   const scoringEvents = events.filter(e => e.isScoring && e.scoreA != null && e.scoreB != null);
-  if (scoringEvents.length < 2) return null;
 
   const W = 1000;
   const H = 100;
   const MID = H / 2;
   const PAD_TOP = 8;
+
+  // Quarter dividers
+  const qDividers = [1, 2, 3].map(i => (i / 4) * W);
+
+  // Empty state: show skeleton chart
+  if (scoringEvents.length < 2) {
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ padding: '6px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted, display: 'flex', alignItems: 'center', gap: 12 }}>
+          📈 Score Flow
+          <span style={{ fontSize: 9, fontWeight: 400, color: homeColor }}>▲ {homeTlc}</span>
+          <span style={{ fontSize: 9, fontWeight: 400, color: guestColor }}>▼ {guestTlc}</span>
+        </div>
+        <div style={{ padding: '0 12px 4px' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 80, display: 'block' }}>
+            <line x1={0} y1={MID} x2={W} y2={MID} stroke={C.border} strokeWidth={0.5} strokeDasharray="4,4" />
+            {qDividers.map((x, i) => (
+              <g key={i}>
+                <line x1={x} y1={0} x2={x} y2={H} stroke={C.border} strokeWidth={0.5} />
+                <text x={x - 2} y={H - 2} textAnchor="end" fontSize={7} fill={C.textDim}>{QUARTERS[i]}</text>
+              </g>
+            ))}
+            <text x={W - 2} y={H - 2} textAnchor="end" fontSize={7} fill={C.textDim}>Q4</text>
+            <text x={W / 2} y={MID + 4} textAnchor="middle" fontSize={9} fill={C.textDim}>Warte auf Scoring-Events...</text>
+          </svg>
+        </div>
+      </div>
+    );
+  }
   const PAD_BOT = 8;
 
   // Build score-diff path: positive = home leads, negative = guest leads
@@ -244,9 +277,6 @@ function ScoreFlowTimeline({ events, homeColor, guestColor, homeTlc, guestTlc }:
   // Area fill: home above midline, guest below
   const homeAreaD = `M0,${MID} ${points.map(p => `L${p.x},${Math.min(p.y, MID)}`).join(' ')} L${points[points.length - 1].x},${MID} Z`;
   const guestAreaD = `M0,${MID} ${points.map(p => `L${p.x},${Math.max(p.y, MID)}`).join(' ')} L${points[points.length - 1].x},${MID} Z`;
-
-  // Quarter dividers
-  const qDividers = [1, 2, 3].map(i => (i / 4) * W);
 
   // Timeout markers
   const timeouts = events.filter(e => e.action === 'TIMEO' || e.action === 'TTO');
@@ -348,54 +378,47 @@ function ScoreFlowTimeline({ events, homeColor, guestColor, homeTlc, guestTlc }:
   );
 }
 
-function PlayByPlayTimeline({ events, homeColor, guestColor, historyIncomplete }: {
-  events: PlayEvent[]; homeColor: string; guestColor: string; historyIncomplete: boolean;
+function TeamPlayByPlay({ events, teamCode, teamColor, teamTlc, historyIncomplete }: {
+  events: PlayEvent[]; teamCode: string; teamColor: string; teamTlc: string; historyIncomplete: boolean;
 }) {
   const feedRef = useRef<HTMLDivElement>(null);
+  const teamEvents = events.filter(e => e.teamCode === teamCode);
+  const reversed = [...teamEvents].reverse();
+
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = 0;
-  }, [events.length]);
-
-  const reversed = [...events].reverse();
+  }, [teamEvents.length]);
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted, flexShrink: 0 }}>
-        📋 Live Play-by-Play ({events.length})
+      <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: teamColor, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+        📋 {teamTlc} ({teamEvents.length})
       </div>
       {historyIncomplete && (
-        <div style={{
-          padding: '6px 12px', background: 'rgba(255,145,0,0.12)', borderBottom: `1px solid ${C.warning}`,
-          fontSize: 11, color: C.warning, fontWeight: 600, flexShrink: 0,
-        }}>
-          ⚠️ Play-by-Play möglicherweise unvollständig — späte Verbindung oder Reconnect
+        <div style={{ padding: '4px 8px', background: 'rgba(255,145,0,0.12)', borderBottom: `1px solid ${C.warning}`, fontSize: 10, color: C.warning, fontWeight: 600, flexShrink: 0 }}>
+          ⚠️ Unvollständig
         </div>
       )}
       <div ref={feedRef} style={{ flex: 1, overflowY: 'auto' }}>
         {reversed.length === 0 && (
-          <div style={{ padding: 20, textAlign: 'center', color: C.textDim, fontSize: 12 }}>
-            {events.length === 0 ? 'Warte auf Live-Events...' : 'Keine Events'}
+          <div style={{ padding: 20, textAlign: 'center', color: C.textDim, fontSize: 11 }}>
+            Warte auf Events...
           </div>
         )}
-        {reversed.map((ev, i) => {
-          const isHome = ev.teamCode === 'A';
-          const color = isHome ? homeColor : guestColor;
-          return (
-            <div key={`${ev.id}-${i}`} style={{ display: 'flex', gap: 4, padding: '4px 8px', borderBottom: `1px solid ${C.border}`, alignItems: 'center', fontSize: 11, background: ev.isScoring ? 'rgba(34,210,230,0.04)' : 'transparent' }}>
-              <span style={{ color: C.accent, minWidth: 20, fontSize: 10, fontWeight: 600 }}>{ev.quarter}</span>
-              <span style={{ color: C.textDim, minWidth: 30, fontSize: 10, fontFamily: 'monospace' }}>{ev.clock}</span>
-              <span style={{ fontSize: 12, minWidth: 14 }}>{ev.icon}</span>
-              <span style={{ color, fontWeight: 700, minWidth: 14 }}>{ev.teamCode}</span>
-              <span style={{ color: C.white, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {ev.playerNum ? `#${ev.playerNum} ` : ''}{ev.playerName.split(' ').pop()}
-              </span>
-              <span style={{ color: C.textMuted, fontSize: 10, flexShrink: 0 }}>{ev.detail.split(' ')[0]}</span>
-              {ev.scoreA != null && ev.scoreB != null && (
-                <span style={{ color: C.accent, fontSize: 10, fontWeight: 700, fontFamily: 'monospace', flexShrink: 0 }}>{ev.scoreA}:{ev.scoreB}</span>
-              )}
-            </div>
-          );
-        })}
+        {reversed.map((ev, i) => (
+          <div key={`${ev.id}-${i}`} style={{ display: 'flex', gap: 4, padding: '4px 6px', borderBottom: `1px solid ${C.border}`, alignItems: 'center', fontSize: 11, background: ev.isScoring ? 'rgba(34,210,230,0.04)' : 'transparent' }}>
+            <span style={{ color: C.accent, minWidth: 18, fontSize: 9, fontWeight: 600 }}>{ev.quarter}</span>
+            <span style={{ color: C.textDim, minWidth: 28, fontSize: 9, fontFamily: 'monospace' }}>{ev.clock}</span>
+            <span style={{ fontSize: 11, minWidth: 14 }}>{ev.icon}</span>
+            <span style={{ color: C.white, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }}>
+              {ev.playerNum ? `#${ev.playerNum} ` : ''}{ev.playerName.split(' ').pop()}
+            </span>
+            <span style={{ color: C.textMuted, fontSize: 9, flexShrink: 0 }}>{ev.detail.split(' ')[0]}</span>
+            {ev.scoreA != null && ev.scoreB != null && (
+              <span style={{ color: C.accent, fontSize: 9, fontWeight: 700, fontFamily: 'monospace', flexShrink: 0 }}>{ev.scoreA}:{ev.scoreB}</span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -607,7 +630,7 @@ export default function BblSocketDashboard() {
       )}
 
       {/* Score Flow Timeline — full width */}
-      {selectedMatch && state.playEvents.length >= 2 && (
+      {selectedMatch && (
         <ScoreFlowTimeline
           events={state.playEvents}
           homeColor={homeColor}
@@ -617,10 +640,15 @@ export default function BblSocketDashboard() {
         />
       )}
 
-      {/* 2-column layout: Left Boxscore, Right Play-by-Play */}
+      {/* 3-column layout: Home PbP | Boxscore | Guest PbP */}
       {selectedMatch && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 12, alignItems: 'start' }}>
-          {/* Left column: Leaders + Boxscore tables */}
+        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 260px', gap: 12, alignItems: 'start' }}>
+          {/* Left column: Home Team Play-by-Play */}
+          <div style={{ position: 'sticky', top: 12, height: 'calc(100vh - 100px)', minHeight: 0 }}>
+            <TeamPlayByPlay events={state.playEvents} teamCode="A" teamColor={homeColor} teamTlc={homeTlc || selectedMatch.homeTeam} historyIncomplete={ws.historyIncomplete} />
+          </div>
+
+          {/* Center column: Insights + Leaders + Boxscore tables */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             {statsReady ? (
               <>
@@ -648,9 +676,9 @@ export default function BblSocketDashboard() {
             )}
           </div>
 
-          {/* Right column: Play-by-Play Sidebar */}
+          {/* Right column: Guest Team Play-by-Play */}
           <div style={{ position: 'sticky', top: 12, height: 'calc(100vh - 100px)', minHeight: 0 }}>
-            <PlayByPlayTimeline events={state.playEvents} homeColor={homeColor} guestColor={guestColor} historyIncomplete={ws.historyIncomplete} />
+            <TeamPlayByPlay events={state.playEvents} teamCode="B" teamColor={guestColor} teamTlc={guestTlc || selectedMatch.guestTeam} historyIncomplete={ws.historyIncomplete} />
           </div>
         </div>
       )}
