@@ -20,6 +20,7 @@ import { createPlanningDeskClient } from './planning-desk-client.js';
 import { createPlanningDeskRouter } from './routes/planning-desk.js';
 import { createReplayService } from './replay/index.js';
 import { createReplayRouter } from './routes/replay.js';
+import { setupAutoRecording } from './replay/auto-record.js';
 import { WebSocketServer, WebSocket } from 'ws';
 
 // Load config — abort if SESSION_SECRET is missing
@@ -105,6 +106,10 @@ if (bblSocketApiKey) {
   const replayService = createReplayService(bblSocket, recordingsDir);
   app.use('/api/admin/replay', createReplayRouter(replayService, recordingsDir));
   console.log('Replay service registered');
+
+  // Auto-record every connected game
+  setupAutoRecording(bblSocket, recordingsDir);
+  console.log('Auto-recording enabled (7-day retention)');
 } else {
   console.warn('BBL_SOCKET_API_KEY not set — BBL Socket service not registered');
 }
