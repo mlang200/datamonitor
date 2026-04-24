@@ -98,6 +98,8 @@ export interface BblSocketService {
   isConnected(): boolean;
   /** Inject a mapped event into the event pipeline (used by replay). */
   _injectEvent(event: MappedEvent): void;
+  /** Create a replay session without connecting to the real API. */
+  _startReplaySession(gameId: number, gameInfo: GameInfo | null): void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -437,6 +439,27 @@ export function createBblSocketService(config: BblSocketConfig): BblSocketServic
       }
 
       eventListeners.forEach(cb => cb(event));
+    },
+
+    _startReplaySession(gameId: number, gameInfo: GameInfo | null): void {
+      cleanup();
+      currentGameId = gameId;
+      session = {
+        gameId,
+        gameInfo,
+        events: [],
+        isConnected: true,
+        isHistoryLoaded: false,
+        historyIncomplete: false,
+        lastIds: { score: 0, action: 0, team: 0, player: 0 },
+        logs: [],
+        connectCount: 1,
+      };
+      log(`[replay] session created for game ${gameId}`);
+      if (gameInfo) {
+        log(`[replay] game info — ${gameInfo.homeTeam?.name || '?'} vs ${gameInfo.guestTeam?.name || '?'}`);
+      }
+      notifyStatus();
     },
   };
 }
