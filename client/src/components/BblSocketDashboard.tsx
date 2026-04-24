@@ -7,8 +7,8 @@ import { useAuth } from '../auth/AuthContext';
 import type { GameInfo } from '../hooks/useBblSocket';
 import {
   buildRosterMap, buildStateFromEvents, getLeaders, getPlayEvents,
-  formatClock, pct, shotStr, generateInsights,
-  type PlayerStats, type PlayEvent, type LiveInsight,
+  formatClock, pct, shotStr, computeGameInsights,
+  type PlayerStats, type PlayEvent, type GameInsights,
 } from './dashboard-logic';
 
 // ═══════════════════════════════════════════════
@@ -48,29 +48,82 @@ function formatTime(iso: string): string {
 // Sub-components
 // ═══════════════════════════════════════════════
 
-function InsightsPanel({ insights }: { insights: LiveInsight[] }) {
+function InsightsPanel({ insights, homeTlc, guestTlc, homeColor, guestColor }: {
+  insights: GameInsights; homeTlc: string; guestTlc: string; homeColor: string; guestColor: string;
+}) {
+  const run = insights.currentRun;
+  const runLabel = run.points > 0
+    ? `${run.team === 'A' ? homeTlc : guestTlc} ${run.points}:0`
+    : '—';
+  const longestLabel = insights.longestRun.points > 0
+    ? `${insights.longestRun.team === 'A' ? homeTlc : guestTlc} ${insights.longestRun.points}:0`
+    : '—';
+
+  const stats: { label: string; home: string | number; guest: string | number; highlight?: 'home' | 'guest' | null }[] = [
+    {
+      label: `Punkte ${insights.currentQuarter || '—'}`,
+      home: insights.quarterPointsA,
+      guest: insights.quarterPointsB,
+      highlight: insights.quarterPointsA > insights.quarterPointsB ? 'home' : insights.quarterPointsB > insights.quarterPointsA ? 'guest' : null,
+    },
+    {
+      label: 'Höchste Führung',
+      home: insights.biggestLeadA || '—',
+      guest: insights.biggestLeadB || '—',
+      highlight: insights.biggestLeadA > insights.biggestLeadB ? 'home' : insights.biggestLeadB > insights.biggestLeadA ? 'guest' : null,
+    },
+    {
+      label: 'Bench Points',
+      home: insights.benchPointsA,
+      guest: insights.benchPointsB,
+      highlight: insights.benchPointsA > insights.benchPointsB ? 'home' : insights.benchPointsB > insights.benchPointsA ? 'guest' : null,
+    },
+  ];
+
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
-      <div style={{ padding: '6px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted }}>
-        💡 Live Insights
+      <div style={{ padding: '6px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: C.textMuted, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>📊 Spielverlauf</span>
+        <span style={{ fontWeight: 400, fontSize: 9, letterSpacing: 0 }}>
+          {insights.leadChanges} Führungswechsel · {insights.ties}× Gleichstand
+        </span>
       </div>
-      {insights.length === 0 ? (
-        <div style={{ padding: '12px 12px', textAlign: 'center', color: C.textDim, fontSize: 11 }}>
-          Insights erscheinen während des Spiels...
-        </div>
-      ) : (
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {insights.map((ins, i) => (
-          <div key={i} style={{ padding: '6px 12px', borderBottom: i < insights.length - 1 ? `1px solid ${C.border}` : 'none', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <span style={{ fontSize: 14, flexShrink: 0, lineHeight: '18px' }}>{ins.icon}</span>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.white, lineHeight: '16px' }}>{ins.headline}</div>
-              <div style={{ fontSize: 11, color: C.text, lineHeight: '15px' }}>{ins.detail}</div>
-            </div>
+
+      {/* Aktueller Run + Längster Run */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ padding: '6px 12px', borderRight: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 9, color: C.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Aktueller Run</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: run.points >= 6 ? C.warning : C.white, marginTop: 2 }}>
+            {runLabel}
           </div>
+        </div>
+        <div style={{ padding: '6px 12px' }}>
+          <div style={{ fontSize: 9, color: C.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Längster Run</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.white, marginTop: 2 }}>
+            {longestLabel}
+          </div>
+        </div>
+      </div>
+
+      {/* Team comparison rows */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}>
+        <div style={{ padding: '4px 12px', fontSize: 10, fontWeight: 700, color: homeColor, borderBottom: `1px solid ${C.border}` }}>{homeTlc}</div>
+        <div style={{ padding: '4px 8px', fontSize: 9, fontWeight: 700, color: C.textMuted, textAlign: 'center', borderBottom: `1px solid ${C.border}` }}>STAT</div>
+        <div style={{ padding: '4px 12px', fontSize: 10, fontWeight: 700, color: guestColor, textAlign: 'right', borderBottom: `1px solid ${C.border}` }}>{guestTlc}</div>
+        {stats.map(s => (
+          <React.Fragment key={s.label}>
+            <div style={{ padding: '5px 12px', borderBottom: `1px solid ${C.border}`, fontSize: 14, fontWeight: 800, color: s.highlight === 'home' ? C.white : C.textMuted }}>
+              {s.home}
+            </div>
+            <div style={{ padding: '5px 8px', textAlign: 'center', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 600, color: C.accent }}>
+              {s.label}
+            </div>
+            <div style={{ padding: '5px 12px', textAlign: 'right', borderBottom: `1px solid ${C.border}`, fontSize: 14, fontWeight: 800, color: s.highlight === 'guest' ? C.white : C.textMuted }}>
+              {s.guest}
+            </div>
+          </React.Fragment>
         ))}
       </div>
-      )}
     </div>
   );
 }
@@ -516,11 +569,9 @@ export default function BblSocketDashboard() {
   const statsReady = hasData && hasRealPlayerStats;
 
   // Live Insights
-  const insights = useMemo(() => generateInsights(
+  const insights = useMemo(() => computeGameInsights(
     state.playEvents, state.playersA, state.playersB,
-    homeTlc || selectedMatch?.homeTeam || 'A',
-    guestTlc || selectedMatch?.guestTeam || 'B',
-  ), [state.playEvents, state.playersA, state.playersB, homeTlc, guestTlc, selectedMatch]);
+  ), [state.playEvents, state.playersA, state.playersB]);
 
   return (
     <div style={{ padding: 24, background: C.bg, minHeight: '100vh', color: C.text, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
@@ -652,7 +703,7 @@ export default function BblSocketDashboard() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             {statsReady ? (
               <>
-                <InsightsPanel insights={insights} />
+                <InsightsPanel insights={insights} homeTlc={homeTlc || selectedMatch.homeTeam} guestTlc={guestTlc || selectedMatch.guestTeam} homeColor={homeColor} guestColor={guestColor} />
                 <LeadersPanel playersA={state.playersA} playersB={state.playersB} tlcA={homeTlc || selectedMatch.homeTeam} tlcB={guestTlc || selectedMatch.guestTeam} homeColor={homeColor} guestColor={guestColor} />
                 <TeamTable players={state.playersA} teamName={homeTeamName} tlc={homeTlc || selectedMatch.homeTeam} score={state.scoreA} accentColor={homeColor} />
                 <TeamTable players={state.playersB} teamName={guestTeamName} tlc={guestTlc || selectedMatch.guestTeam} score={state.scoreB} accentColor={guestColor} />
@@ -668,7 +719,7 @@ export default function BblSocketDashboard() {
               </div>
             ) : (
               <>
-                <InsightsPanel insights={insights} />
+                <InsightsPanel insights={insights} homeTlc={homeTlc || selectedMatch.homeTeam} guestTlc={guestTlc || selectedMatch.guestTeam} homeColor={homeColor} guestColor={guestColor} />
                 <LeadersPanel playersA={[]} playersB={[]} tlcA={homeTlc || selectedMatch.homeTeam} tlcB={guestTlc || selectedMatch.guestTeam} homeColor={homeColor} guestColor={guestColor} />
                 <TeamTable players={[]} teamName={homeTeamName} tlc={homeTlc || selectedMatch.homeTeam} score={0} accentColor={homeColor} />
                 <TeamTable players={[]} teamName={guestTeamName} tlc={guestTlc || selectedMatch.guestTeam} score={0} accentColor={guestColor} />

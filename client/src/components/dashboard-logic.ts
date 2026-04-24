@@ -260,114 +260,125 @@ export function areStatsReady(
 
 
 // ═══════════════════════════════════════════════
-// Live Insights
+// Live Insights — Fixed Stats Panel
 // ═══════════════════════════════════════════════
 
-export interface LiveInsight {
-  icon: string;
-  headline: string;   // max 4 words
-  detail: string;     // max ~12 words
+export interface GameInsights {
+  // Höchste Führung pro Team
+  biggestLeadA: number;
+  biggestLeadB: number;
+  // Aktueller Run (aufeinanderfolgende Punkte eines Teams)
+  currentRun: { team: string; points: number; count: number };
+  // Längster Run im Spiel
+  longestRun: { team: string; points: number };
+  // Punkte aus Turnovers
+  pointsOffTurnoversA: number;
+  pointsOffTurnoversB: number;
+  // Bench Points (Spieler die nicht in der Starting Five sind — approximiert über Spielzeit)
+  benchPointsA: number;
+  benchPointsB: number;
+  // Führungswechsel
+  leadChanges: number;
+  // Gleichstände
+  ties: number;
+  // Punkte im aktuellen Quarter
+  quarterPointsA: number;
+  quarterPointsB: number;
+  currentQuarter: string;
 }
 
-/**
- * Generates max 3 live insights from play events and player stats.
- * Focuses on: team runs, hot players, scoring droughts, momentum shifts.
- */
-export function generateInsights(
+export function computeGameInsights(
   playEvents: PlayEvent[],
   playersA: PlayerStats[],
   playersB: PlayerStats[],
-  teamNameA: string,
-  teamNameB: string,
-): LiveInsight[] {
-  const insights: LiveInsight[] = [];
-  if (playEvents.length < 3) return insights;
+): GameInsights {
+  const scoringEvents = playEvents.filter(e => e.isScoring && e.scoreA != null && e.scoreB != null);
 
-  // --- 1. Team Runs (consecutive scoring by one team) ---
-  const scoringEvents = playEvents.filter(e => e.isScoring);
-  if (scoringEvents.length >= 3) {
-    const recent = scoringEvents.slice(-15); // look at last 15 scoring events
-    let runTeam = '';
-    let runPoints = 0;
-    let runCount = 0;
+  let biggestLeadA = 0;
+  let biggestLeadB = 0;
+  let leadChanges = 0;
+  let ties = 0;
+  let prevLeader = ''; // 'A', 'B', or 'tie'
 
-    // Walk backwards from the most recent scoring event
-    for (let i = recent.length - 1; i >= 0; i--) {
-      const ev = recent[i];
-      if (runTeam === '') {
-        runTeam = ev.teamCode;
-        runPoints += pointsFromAction(ev);
-        runCount++;
-      } else if (ev.teamCode === runTeam) {
-        runPoints += pointsFromAction(ev);
-        runCount++;
-      } else {
-        break;
+  for (const ev of scoringEvents) {
+    const diff = (ev.scoreA ?? 0) - (ev.scoreB ?? 0);
+    if (diff > biggestLeadA) biggestLeadA = diff;
+    if (-diff > biggestLeadB) biggestLeadB = -diff;
+
+    const leader = diff > 0 ? 'A' : diff < 0 ? 'B' : 'tie';
+    if (leader === 'tie') {
+      ties++;
+    }
+    if (prevLeader && leader !== 'tie' && prevLeader !== 'tie' && leader !== prevLeader) {
+      leadChanges++;
+    }
+    prevLeader = leader;
+  }
+
+  // Current run + longest run
+  let currentRun = { team: '', points: 0, count: 0 };
+  let longestRun = { team: '', points: 0 };
+  let tempRun = { team: '', points: 0, count: 0 };
+
+  for (const ev of scoringEvents) {
+    const pts = pointsFromAction(ev);
+    if (ev.teamCode === tempRun.team) {
+      tempRun.points += pts;
+      tempRun.count++;
+    } else {
+      if (tempRun.points > longestRun.points) {
+        longestRun = { team: tempRun.team, points: tempRun.points };
+      }
+      tempRun = { team: ev.teamCode, points: pts, count: 1 };
+    }
+  }
+  // Check last run
+  if (tempRun.points > longestRun.points) {
+    longestRun = { team: tempRun.team, points: tempRun.points };
+  }
+  currentRun = { ...tempRun };
+
+  // Bench points: players sorted by sp (playing time), bottom half = bench approximation
+  const benchPtsA = computeBenchPoints(playersA);
+  const benchPtsB = computeBenchPoints(playersB);
+
+  // Quarter points from the last quarter in play events
+  let currentQuarter = '';
+  let quarterPointsA = 0;
+  let quarterPointsB = 0;
+  if (scoringEvents.length > 0) {
+    currentQuarter = scoringEvents[scoringEvents.length - 1].quarter;
+    for (const ev of scoringEvents) {
+      if (ev.quarter === currentQuarter) {
+        const pts = pointsFromAction(ev);
+        if (ev.teamCode === 'A') quarterPointsA += pts;
+        else quarterPointsB += pts;
       }
     }
-
-    if (runCount >= 3 && runPoints >= 6) {
-      const name = runTeam === 'A' ? teamNameA : teamNameB;
-      insights.push({
-        icon: '🔥',
-        headline: `${name}-Run!`,
-        detail: `${runPoints}:0-Lauf mit ${runCount} Scores in Folge.`,
-      });
-    }
   }
 
-  // --- 2. Hot Player (most points in last N events) ---
-  const recentActions = playEvents.slice(-20);
-  const recentScoring = recentActions.filter(e => e.isScoring);
-  if (recentScoring.length >= 3) {
-    const playerPoints = new Map<string, { name: string; pts: number; team: string }>();
-    for (const ev of recentScoring) {
-      const key = ev.playerNum + ev.teamCode;
-      const existing = playerPoints.get(key);
-      const pts = pointsFromAction(ev);
-      if (existing) {
-        existing.pts += pts;
-      } else {
-        const lastName = ev.playerName.split(' ').pop() || ev.playerName;
-        playerPoints.set(key, { name: lastName, pts, team: ev.teamCode });
-      }
-    }
-    const hottest = [...playerPoints.values()].sort((a, b) => b.pts - a.pts)[0];
-    if (hottest && hottest.pts >= 6) {
-      insights.push({
-        icon: '⭐',
-        headline: `${hottest.name} on Fire`,
-        detail: `${hottest.pts} Punkte in den letzten ${recentScoring.length} Scores.`,
-      });
-    }
-  }
+  return {
+    biggestLeadA,
+    biggestLeadB,
+    currentRun,
+    longestRun,
+    pointsOffTurnoversA: 0, // Would need turnover tracking per possession — not available from events
+    pointsOffTurnoversB: 0,
+    benchPointsA: benchPtsA,
+    benchPointsB: benchPtsB,
+    leadChanges,
+    ties,
+    quarterPointsA,
+    quarterPointsB,
+    currentQuarter,
+  };
+}
 
-  // --- 3. Scoring Drought (team without points for many events) ---
-  if (scoringEvents.length >= 5) {
-    const lastA = findLastScoringIndex(scoringEvents, 'A');
-    const lastB = findLastScoringIndex(scoringEvents, 'B');
-    const totalScoring = scoringEvents.length;
-
-    const droughtA = lastA === -1 ? totalScoring : totalScoring - 1 - lastA;
-    const droughtB = lastB === -1 ? totalScoring : totalScoring - 1 - lastB;
-
-    const droughtThreshold = 4; // opponent scored 4+ times without answer
-    if (droughtA >= droughtThreshold && droughtA > droughtB) {
-      insights.push({
-        icon: '🧊',
-        headline: `${teamNameA} kalt`,
-        detail: `Seit ${droughtA} gegnerischen Scores ohne eigene Punkte.`,
-      });
-    } else if (droughtB >= droughtThreshold && droughtB > droughtA) {
-      insights.push({
-        icon: '🧊',
-        headline: `${teamNameB} kalt`,
-        detail: `Seit ${droughtB} gegnerischen Scores ohne eigene Punkte.`,
-      });
-    }
-  }
-
-  return insights.slice(0, 3);
+function computeBenchPoints(players: PlayerStats[]): number {
+  if (players.length <= 5) return 0;
+  // Sort by playing time descending, top 5 = starters, rest = bench
+  const sorted = [...players].sort((a, b) => b.sp - a.sp);
+  return sorted.slice(5).reduce((sum, p) => sum + p.pts, 0);
 }
 
 function pointsFromAction(ev: PlayEvent): number {
@@ -375,11 +386,4 @@ function pointsFromAction(ev: PlayEvent): number {
   if (ev.action === 'P3') return 3;
   if (ev.action === 'FT') return 1;
   return 2; // P2
-}
-
-function findLastScoringIndex(scoringEvents: PlayEvent[], teamCode: string): number {
-  for (let i = scoringEvents.length - 1; i >= 0; i--) {
-    if (scoringEvents[i].teamCode === teamCode) return i;
-  }
-  return -1;
 }
